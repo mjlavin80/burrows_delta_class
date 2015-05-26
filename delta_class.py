@@ -8,7 +8,7 @@ import numpy
 from scipy import stats
 
 class DeltaCorpus(object):
-    def __init__(self, candidate_1, candidate_2, disputed, markov=False, culling=0, mfw=50, bootstrap=False, bootstrap_samples=1000, bootstrap_sample_size=2000, chunk_size=False, chunks=10, manual_chunks=False):
+    def __init__(self, candidate_1, candidate_2, disputed, markov=False, culling=0, mfw=50, bootstrap=False, bootstrap_samples=1000, bootstrap_sample_size=2000, chunk_size=False, chunks=False, manual_chunks=False):
         # everything should be lowercase and punctuation stripped
         
         #config variables
@@ -82,8 +82,14 @@ class DeltaCorpus(object):
         self.candidate_2 = Counter(self.candidate_2) #freqdist dictionary
         self.disputed = Counter(self.disputed) #freqdist dictionary
         
+        #Convert counts to frequencies
+        self.c_1_freqs = self.cand_count_to_freq(self.candidate_1)
+        self.c_2_freqs = self.cand_count_to_freq(self.candidate_2)
+        self.disp_freqs = self.cand_count_to_freq(self.disputed)
+        
         #Counter dictionary expressing freqdist for all three
-        self.combined = self.candidate_1 + self.candidate_2 + self.disputed
+        #self.combined = self.candidate_1 + self.candidate_2 + self.disputed
+        self.combined = self.c_1_freqs + self.c_2_freqs + self.disp_freqs
         
         self.count_culls()
         
@@ -95,16 +101,26 @@ class DeltaCorpus(object):
             
         #subsets    
         if self.manual_chunks is False:
-            self.candidate_1_subsets = self.subset_creator(self.repeating_list_1) 
+            self.candidate_1_subsets = self.subset_creator(self.repeating_list_1)
+            if self.bootstrap is True:
+                print "Finished bootstrapping sample 1"
             self.candidate_2_subsets = self.subset_creator(self.repeating_list_2) 
-        
-        self.word_counts_to_freqs()
+            if self.bootstrap is True:
+                print "Finished bootstrapping sample 2"
+        self.subset_word_counts_to_freqs()
         self.freqs_to_top_words() #sets the top_results variable
         self.freqs_to_zscores()
         self.z_scores_to_z_avg()
         self.z_avg_to_z_diffs()
         self.z_scores_to_final_delta()
-        
+    
+    def cand_count_to_freq(self, dicto):
+        f = {}
+        a = sum(i[1] for i in dicto.items())
+        for j,k in dicto.items():
+            f[j] = float(k)/a
+        return Counter(f)
+    
     def get_raw_data(self):
         self.raw_data = ""
         headers = ('chunk_id', ';', 'word_id', ';', 'word', ';', 'frequency', ';', 'zscore', '\n' )
@@ -126,7 +142,8 @@ class DeltaCorpus(object):
         return self.raw_data
     
     def get_config(self):
-        return { 'chunk_size':self.chunk_size, 'chunks': self.chunks, 'culling': self.culling, 'mfw': self.mfw, 'words_compared':len(self.top_words_corpus), 'markov': self.markov, 'bootstrap':self.bootstrap, 'bootstrap_samples':self.bootstrap_samples, 'bootstrap_sample_size':self.bootstrap_sample_size }
+        return { 'chunk_size':self.chunk_size, 'chunks': self.chunks, 'culling': self.culling, 'mfw': self.mfw, 'words_compared':len(self.top_words_corpus), 'markov': self.markov, \
+                'bootstrap':self.bootstrap, 'bootstrap_samples':self.bootstrap_samples, 'bootstrap_sample_size':self.bootstrap_sample_size }
     
     def count_culls(self):
         #loop through all words
@@ -175,29 +192,28 @@ class DeltaCorpus(object):
                 list_of_subsets = self.chunkify_by_size(list_of_words, self.chunk_size)
         else:
             #bootstrap instead of chunkify
-            list_of_sets = []
-            for n in self.bootstrap_samples:
+            list_of_subsets = []
+            for n in range(self.bootstrap_samples):
                 #generate a list, same length as repeating_list, random values, repetition is fine
                 proc_list = []
-                sample_max_length = self.bootstrap_sample_size
-                #sample_max_length = len(list_of_words)*self.bootstrap_sample_size/100
-                while len(proc_list)<=sample_max_length:
+                while len(proc_list)<self.bootstrap_sample_size:
                     #random item from list_of_words
                     random_item = random.choice(list_of_words)
-                    proc_list.append(list_of_words)
-                list_of_sets.append(proc_list)
-        
+                    proc_list.append(random_item)
+                list_of_subsets.append(proc_list)
+            print "Processing list length: " + str(len(proc_list)) 
+            print "Subsets list length: " + str(len(list_of_subsets)) 
         # convert back to freqdist dictionary
         subset_tuples= []
         
         #list of tuples
         for i in list_of_subsets:
-            f = FreqDist(i)
+            f = Counter(i)
             subset_tuples.append(f.items())
         
         return subset_tuples
     
-    def word_counts_to_freqs(self):
+    def subset_word_counts_to_freqs(self):
         #word counts to frequencies of word in the set
         
         for i in self.candidate_1_subsets:
@@ -406,7 +422,7 @@ if __name__ == '__main__':
     c = disp.tokenized_text
     
     d = DeltaCorpus(a,b,c)
-    attrs = [('culling', 0), ('mfw', 50), ('bootstrap', False), ('markov', True), ('manual_chunks', False), ('chunks', 10)]
+    attrs = [('culling', 0), ('mfw', 60), ('bootstrap', True), ('bootstrap_samples', 400), ('bootstrap_sample_size', 2000), ('markov', True), ('manual_chunks', False)]
     for j, k in attrs:
         setattr(d, j, k)
     d.process_all()
